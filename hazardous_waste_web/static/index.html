@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="基于 YOLOv5 的垃圾与有害垃圾检测系统">
+  <title>净界 · 有害垃圾智能检测</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark">净</span>
+      <span><strong>净界</strong><small>Waste Vision</small></span>
+    </a>
+    <div class="status"><i></i> YOLOv5 模型已就绪</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">HAZARDOUS WASTE DETECTION</p>
+        <h1>让有害垃圾<br><em>无处藏身</em></h1>
+        <p class="lead">上传一张垃圾图片，系统将自动定位并识别垃圾种类；发现有害垃圾时，会立即发出醒目提醒。</p>
+      </div>
+      <div class="hero-stats">
+        <div><strong>40</strong><span>可识别类别</span></div>
+        <div><strong>5</strong><span>重点有害类别</span></div>
+        <div><strong>640</strong><span>推理分辨率</span></div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <article class="upload-card panel">
+        <div class="section-heading">
+          <div><span class="step">01</span><h2>上传检测图片</h2></div>
+          <button id="resetButton" class="text-button" type="button" hidden>重新选择</button>
+        </div>
+
+        <label id="dropZone" class="drop-zone" for="fileInput">
+          <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+          <img id="previewImage" alt="待检测图片预览" hidden>
+          <div id="dropPrompt" class="drop-prompt">
+            <span class="upload-icon"><i></i></span>
+            <h3>拖拽图片到这里</h3>
+            <p>或点击选择 JPG、PNG、WEBP 图片</p>
+            <b>选择图片</b>
+          </div>
+        </label>
+
+        <div class="controls">
+          <label for="confidence">检测灵敏度</label>
+          <div class="range-row">
+            <span>高召回</span>
+            <input id="confidence" type="range" min="0.05" max="0.50" step="0.01" value="0.15">
+            <output id="confidenceValue">0.15</output>
+          </div>
+          <p>阈值越低越不容易漏检，但可能出现更多误报。</p>
+        </div>
+        <button id="detectButton" class="detect-button" type="button" disabled>
+          <span>开始智能检测</span><i>→</i>
+        </button>
+      </article>
+
+      <article class="result-card panel">
+        <div class="section-heading">
+          <div><span class="step">02</span><h2>检测结果</h2></div>
+          <span id="latency" class="latency"></span>
+        </div>
+
+        <div id="emptyState" class="empty-state">
+          <span class="scan-icon"></span>
+          <h3>等待检测</h3>
+          <p>图片将先经过增强预处理，再进行垃圾检测</p>
+        </div>
+
+        <div id="loadingState" class="loading-state" hidden>
+          <span class="spinner"></span>
+          <h3>正在分析图片</h3>
+          <p>正在进行图像增强预处理与垃圾目标检测...</p>
+        </div>
+
+        <div id="resultState" hidden>
+          <div id="alertBox" class="alert-box safe">
+            <span class="alert-symbol">✓</span>
+            <div><small>检测结论</small><h3 id="alertTitle"></h3><p id="alertText"></p></div>
+          </div>
+          <div class="result-image-wrap">
+            <img id="resultImage" alt="检测结果">
+            <span class="legend normal">普通垃圾</span>
+            <span class="legend danger">有害垃圾</span>
+          </div>
+          <div class="summary-head">
+            <h3>识别清单</h3>
+            <span id="totalCount"></span>
+          </div>
+          <div id="detectionList" class="detection-list"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="notice">
+      <span>!</span>
+      <p><strong>温馨提示</strong> AI 检测结果仅供辅助判断。处理电池、药品等有害垃圾时，请做好防护并投放至指定收集容器。</p>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

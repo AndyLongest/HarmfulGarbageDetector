@@ -1,0 +1,5 @@
+path: /root/autodl-tmp/data
+train: images/train
+val: images/val
+nc: 4
+names: ['screw', 'arrow', 'shock_obsorber', 'obsorber_A']
