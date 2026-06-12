@@ -159,6 +159,26 @@
 
 为了改善拍摄图片中尺寸过大、局部对比度不足、噪声和边缘模糊等问题，项目在根目录的 \texttt{preprocess.py} 中实现了完整预处理流程，并将其接入 Web 检测 Pipeline。预处理不仅服务于模型输入，还对应真实使用场景中的具体问题。
 
+\subsubsection{预处理实验对象与批量处理设计}
+
+除在线检测 Pipeline 外，团队还在 \texttt{preprocess/} 文件夹中建立了独立的预处理实验模块，用于系统验证不同类型图片经过处理后的视觉变化。该模块批量处理了两组图片：一组为 50 张数字图像处理课程实验图片，用于检查算法对一般图像的适用性；另一组为 48 张按类别整理的有害垃圾照片，用于重点观察电池、药品、荧光灯管和农药瓶等风险目标的纹理、标签与边缘变化。
+
+批量处理程序会递归读取各类别目录，将处理结果保存至对应输出目录，并为每个类别自动生成原图与处理后图像的对比图。这一设计使预处理不再只是针对单张图片的演示，而成为可重复执行、可按类别检查结果的数据处理工具。考虑到 Windows 环境中数据目录和图片名称可能包含中文，程序还使用 \texttt{np.frombuffer + cv2.imdecode} 和 \texttt{cv2.imencode + tofile} 实现中文路径兼容，避免 \texttt{cv2.imread} 或 \texttt{cv2.imwrite} 因路径字符问题读取失败。
+
+\begin{lstlisting}[language=Python,caption={中文路径兼容与批量目录处理}]
+def imread_unicode(path):
+    with open(path, "rb") as f:
+        data = np.frombuffer(f.read(), dtype=np.uint8)
+    return cv2.imdecode(data, cv2.IMREAD_COLOR)
+
+def imwrite_unicode(path, img):
+    ext = os.path.splitext(path)[1]
+    _, buf = cv2.imencode(ext, img)
+    buf.tofile(path)
+\end{lstlisting}
+
+\subsubsection{处理组件与现实作用}
+
 \begin{longtable}{p{3.1cm}p{4.2cm}p{7.0cm}}
   \toprule
   处理组件 & 参数设置 & 现实作用与设计目的 \\
@@ -170,6 +190,26 @@
   Unsharp Masking & 模糊核 $5\times5$，强度 1.5 & 强化目标边缘与结构信息，帮助模型区分轮廓相近或边界模糊的垃圾目标。\\
   \bottomrule
 \end{longtable}
+
+\subsubsection{关键算法原理}
+
+\paragraph{Gaussian Blur 去噪}
+高斯滤波使用二维正态分布为邻域像素分配权重：
+\begin{equation}
+  G(x,y)=\frac{1}{2\pi\sigma^2}
+  \exp\left(-\frac{x^2+y^2}{2\sigma^2}\right).
+\end{equation}
+本项目选择 $3\times3$ 小尺寸高斯核，在抑制传感器噪声与 JPEG 压缩伪影的同时，尽量保留垃圾表面的文字、纹理和轮廓。该步骤被放在 CLAHE 之前，是为了防止局部对比度增强将噪声同步放大。
+
+\paragraph{CLAHE 局部对比度增强}
+CLAHE（Contrast Limited Adaptive Histogram Equalization）首先将 BGR 图像转换至 LAB 颜色空间，再将图像划分为 $8\times8$ 个局部区域，对亮度通道 L 独立执行限制对比度的直方图均衡化。裁剪阈值 \texttt{clipLimit=2.0} 用于抑制过度增强。仅处理 L 通道可以在提升暗部可见度的同时，尽量不改变 A、B 通道承载的颜色信息，从而降低色相和饱和度失真。对于垃圾堆中处于阴影、被遮挡或颜色接近背景的目标，该方法能够使边界和表面标签更加明显。
+
+\paragraph{Unsharp Masking 锐化}
+反锐化掩模首先计算图像的模糊版本，再利用原图与模糊图之间的高频差异增强边缘。本项目的计算形式为：
+\begin{equation}
+  I_{\mathrm{out}}=1.5I_{\mathrm{src}}-0.5I_{\mathrm{blur}}.
+\end{equation}
+其中模糊图使用 $5\times5$ 高斯核和 $\sigma=1.0$ 生成。中等强度锐化用于恢复去噪造成的轻微软化，并突出电池文字、药品标签、灯管轮廓等判别信息，同时避免过强锐化引入明显振铃伪影。
 
 \begin{figure}[H]
   \centering
@@ -187,6 +227,38 @@ def preprocess(img):
     img = sharpen_unsharp(img, strength=1.5)
     return img
 \end{lstlisting}
+
+\subsubsection{多类别预处理效果展示}
+
+独立预处理实验进一步生成了多类有害垃圾的原图与处理后对比。图~\ref{fig:harmful-preprocess} 展示了四类代表性结果。处理后，原图暗部和低对比度区域中的纹理更加明显，部分标签文字与目标边缘更清晰；同时，去噪步骤减少了无意义的随机纹理干扰。
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\textwidth]{comparison_1_batteries_001.png}
+    \caption{电池}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\textwidth]{comparison_1_medicine_001.png}
+    \caption{药品}
+  \end{subfigure}
+
+  \vspace{0.5em}
+  \begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\textwidth]{comparison_1_fluorescent_tube_001.png}
+    \caption{荧光灯管}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\textwidth]{comparison_1_pesticide_bottle_001.png}
+    \caption{农药瓶}
+  \end{subfigure}
+  \caption{不同有害垃圾类别的预处理前后对比}
+  \label{fig:harmful-preprocess}
+\end{figure}
+
+从批量实验可以总结出：Resize 统一了处理尺度并降低计算负担；Gaussian Blur 使画面更干净，并抑制后续增强对噪声的放大；CLAHE 对暗部和局部低对比度区域改善最明显；Unsharp Masking 则恢复了经过平滑后的边缘清晰度。四个阶段按顺序衔接，分别承担标准化、去噪、增强和细节恢复的作用。
 
 \subsection{数据划分与标注格式}
 
@@ -345,7 +417,7 @@ Upload image
   \item \textbf{训练域与真实垃圾堆存在差异。} 现有数据中包含较多背景干净、目标清晰的图片，而真实垃圾堆通常具有严重遮挡、污损和密集堆叠。
   \item \textbf{整体检测精度仍有限。} 当前 Precision 与 Recall 均约为 55\%，不能将模型输出视为最终判定结果。
   \item \textbf{类别粒度与有害属性并不完全一致。} 某些容器是否有害取决于其残留物，仅凭外观类别可能无法准确判断。
-  \item \textbf{预处理并非在所有场景中都必然提升性能。} 增强对比度和锐化可能帮助观察暗部与边缘，也可能放大噪声。因此后续需要通过对照实验验证每个预处理组件对 mAP 和 Recall 的真实贡献。
+  \item \textbf{预处理的视觉改善不等同于检测指标必然提升。} 批量对比实验表明，处理后暗部纹理、标签和边缘更清晰，但增强与锐化也可能改变模型训练时学习到的图像分布。因此仍需通过消融实验验证每个组件对 mAP 和 Recall 的真实贡献。
   \item \textbf{当前缺少专门的垃圾堆独立测试集。} 若要证明系统能够稳定用于复杂垃圾堆场景，需要收集并单独标注真实混合垃圾图像进行测试。
 \end{enumerate}
 
@@ -357,7 +429,7 @@ Upload image
 
 \section{总结与未来工作}
 
-本项目针对环卫工人从大量混合垃圾中快速发现有害垃圾的现实需求，完成了从数据获取、图像预处理、YOLOv5s 迁移学习、检测效果分析到 Web 应用部署的完整实验。项目经历了自行拍摄和 AI 生成数据不足的问题，随后采用开源标注数据集扩大训练规模；同时结合 Resize、Gaussian Blur、CLAHE 和 Unsharp Masking 改善模型输入质量。最终系统能够输出垃圾类别和位置，并在检测到有害垃圾时进行重点提醒。
+本项目针对环卫工人从大量混合垃圾中快速发现有害垃圾的现实需求，完成了从数据获取、图像预处理、YOLOv5s 迁移学习、检测效果分析到 Web 应用部署的完整实验。项目经历了自行拍摄和 AI 生成数据不足的问题，随后采用开源标注数据集扩大训练规模；同时建立独立预处理实验模块，对 50 张课程实验图片和 48 张有害垃圾图片进行批量处理与分类对比，并结合 Resize、Gaussian Blur、CLAHE 和 Unsharp Masking 改善模型输入质量。最终系统能够输出垃圾类别和位置，并在检测到有害垃圾时进行重点提醒。
 
 当前结果证明了方案的可行性，但距离实际稳定应用仍有差距。下一阶段计划包括：
 
@@ -382,7 +454,7 @@ Upload image
     成员 & 主要贡献 \\
     \midrule
     刘晋嶂 & 负责 YOLOv5s 模型训练、训练参数设置、断点续训、权重选择及训练结果整理。\\
-    邓荣基 & 负责图片处理方案设计与实现，包括 Resize、Gaussian Blur、CLAHE、Unsharp Masking 及预处理 Pipeline 接入。\\
+    邓荣基 & 负责图片处理方案设计与实现，包括 Resize、Gaussian Blur、CLAHE、Unsharp Masking、批量处理实验、中文路径兼容及预处理 Pipeline 接入。\\
     袁致朗 & 负责项目技术调研、现实应用价值分析、实验结果讨论与实验报告撰写。\\
     \bottomrule
   \end{tabular}
@@ -399,6 +471,8 @@ Upload image
   \midrule
   \endhead
   \texttt{preprocess.py} & 图像尺寸调整、去噪、局部对比度增强与锐化。\\
+  \texttt{preprocess/preprocess.py} & 面向课程图片与有害垃圾分类目录的批量预处理、中文路径兼容和对比图生成。\\
+  \path{preprocess/preprocessing_report.tex} & 图像预处理模块的独立实验说明与结果分析。\\
   \texttt{train.py} & YOLOv5 模型训练与断点续训。\\
   \texttt{detect.py} & YOLOv5 基础图片检测程序。\\
   \texttt{exp12/weights/best.pt} & 验证集表现最好的模型权重。\\
@@ -437,6 +511,11 @@ Windows 环境下也可以直接双击仓库根目录中的 \texttt{一键启动
   Karel Zuiderveld.
   \newblock Contrast Limited Adaptive Histogram Equalization.
   \newblock In \emph{Graphics Gems IV}, 1994.
+
+  \bibitem{unsharp}
+  A. Polesel, G. Ramponi, and V. J. Mathews.
+  \newblock Image Enhancement via Adaptive Unsharp Masking.
+  \newblock \emph{IEEE Transactions on Image Processing}, 9(3):505--510, 2000.
 \end{thebibliography}
 
 \end{document}
